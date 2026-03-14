@@ -13,11 +13,14 @@ import java.nio.charset.StandardCharsets;
 
 public class Consumidor {
 
-	private static final String[] BANK_QUEUES = {"BANRURAL", "GYT", "BAC", "BI"};
+    private static final String[] BANK_QUEUES = {"BANRURAL", "GYT", "BAC", "BI"};
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final HttpClient client = HttpClient.newHttpClient();
 
+    private static final String COLA_RECHAZADOS = "cola_rechazados";
+
     public static void main(String[] args) throws Exception {
+
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("127.0.0.1");
         factory.setUsername("Deivid");
@@ -28,57 +31,102 @@ public class Consumidor {
 
         channel.basicQos(1);
 
+        channel.queueDeclare(COLA_RECHAZADOS, true, false, false, null);
+
         for (String queue : BANK_QUEUES) {
+
             channel.queueDeclare(queue, true, false, false, null);
-            
+
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+
                 String payload = new String(delivery.getBody(), StandardCharsets.UTF_8);
+
                 try {
+
                     Transaccion tx = mapper.readValue(payload, Transaccion.class);
 
-              
+        
+                    System.out.println("\n-------------------------------------");
+                    System.out.println("COLA ATENDIDA: " + queue);
+
+               
+                    if (tx.monto > 4000) {
+
+                        System.out.println("ID TRANSACCION: " + tx.idTransaccion);
+                        System.out.println("MONTO: Q" + tx.monto);
+                        System.out.println("ESTADO: RECHAZADA");
+
+                        channel.basicPublish(
+                                "",
+                                COLA_RECHAZADOS,
+                                MessageProperties.PERSISTENT_TEXT_PLAIN,
+                                payload.getBytes()
+                        );
+
+                        channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+
+                        return;
+                    }
+
+                    // Flujo normal
                     String codigoUnico = UUID.randomUUID().toString().substring(0, 8);
                     tx.idTransaccion = "TX-" + tx.idTransaccion + "-" + codigoUnico + "-Deivid";
-                    
-                    tx.carnet = "0905-24-2423552"; 
-                    tx.nombre = "Deivid Guerra"; 
+
+                    tx.carnet = "0905-24-2423552";
+                    tx.nombre = "Deivid Guerra";
                     tx.correo = "dguerrac7@miumg.edu.gt";
-                    
+
                     String jsonModificado = mapper.writeValueAsString(tx);
-                    
+
                     if (postToApi(jsonModificado)) {
-                        System.out.println("Transacción guardada: " + tx.idTransaccion);
-                        
+
+                        System.out.println("ID TRANSACCION: " + tx.idTransaccion);
+                        System.out.println("MONTO: Q" + tx.monto);
+                        System.out.println("ESTADO: ACEPTADA");
+
                         channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+
                     } else {
-                        System.err.println("[FALLO] API del ingeniero no respondió 200. El mensaje sigue en RabbitMQ.");
+
+                        System.err.println("[FALLO] API del ingeniero no respondió 200.");
+
                     }
+
                 } catch (Exception ex) {
+
                     System.err.println("Error procesando mensaje: " + ex.getMessage());
+
                 }
+
             };
 
             channel.basicConsume(queue, false, deliverCallback, consumerTag -> {});
         }
+
         System.out.println("Consumidor esperando mensajes...");
     }
 
     private static boolean postToApi(String json) {
+
         try {
+
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://7e0d9ogwzd.execute-api.us-east-1.amazonaws.com/default/guardarTransacciones"))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
-            
+
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            
+
             System.out.println("Respuesta del servidor: " + response.statusCode() + " -> " + response.body());
-            
+
             return response.statusCode() == 200 || response.statusCode() == 201;
+
         } catch (Exception e) {
+
             System.err.println("Error de conexión: " + e.getMessage());
             return false;
+
         }
-    } 
+    }
 }

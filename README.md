@@ -1,3 +1,7 @@
+Video
+
+https://drive.google.com/file/d/1ydNUX0SwObr8zw6-m22wHTGrxfYKP1r8/view?usp=sharing
+
 Arquitectura del Sistema
 
 El proyecto utiliza una arquitectura basada en el patrón Producer–Consumer utilizando RabbitMQ para manejar la comunicación entre componentes.
